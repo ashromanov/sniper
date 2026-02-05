@@ -2,7 +2,7 @@
 
 import functools
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import ParamSpec, TypeVar
 
 from loguru import logger
@@ -34,7 +34,9 @@ def timed(func: Callable[P, R]) -> Callable[P, R]:
     return wrapper
 
 
-def async_timed[**P, R](func: Callable[P, R]) -> Callable[P, R]:
+def async_timed(
+    func: Callable[P, Coroutine[object, object, R]],
+) -> Callable[P, Coroutine[object, object, R]]:
     """Decorator to measure and log async function execution time.
 
     Args:

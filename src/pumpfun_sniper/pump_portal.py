@@ -6,7 +6,7 @@ from loguru import logger
 
 from pumpfun_sniper import config
 from pumpfun_sniper.decorators import async_timed
-from pumpfun_sniper.models import TradeRequest, TradeResponse
+from pumpfun_sniper.models import TradeResponse
 
 
 class PumpPortalClient:
@@ -36,41 +36,34 @@ class PumpPortalClient:
             self._session = None
 
     @async_timed
-    async def buy_token(self, mint: str, symbol: str) -> TradeResponse | None:
+    async def buy_token(
+        self, mint: str, symbol: str, amount_sol: float | None = None
+    ) -> TradeResponse | None:
         """Buy a token on Pump.fun.
 
         Args:
             mint: Token mint address (contract address).
             symbol: Token symbol for logging.
+            amount_sol: Amount in SOL to buy. If None, uses config default.
 
         Returns:
             Trade response or None on failure.
         """
-        request = TradeRequest(
-            action="buy",
-            mint=mint,
-            amount=config.BUY_AMOUNT_SOL,
-            denominatedInSol="true",
-            slippage=config.SLIPPAGE_PERCENT,
-            priorityFee=config.PRIORITY_FEE,
-            pool="pump",
-        )
-
         url = f"{config.PUMPPORTAL_BASE_URL}?api-key={config.PUMPPORTAL_API_KEY}"
         session = await self._get_session()
 
-        try:
-            # PumpPortal expects form data, not JSON
-            data = {
-                "action": request.action,
-                "mint": request.mint,
-                "amount": request.amount,
-                "denominatedInSol": request.denominatedInSol,
-                "slippage": request.slippage,
-                "priorityFee": request.priorityFee,
-                "pool": request.pool,
-            }
+        # Build form data directly without intermediate model
+        data = {
+            "action": "buy",
+            "mint": mint,
+            "amount": amount_sol if amount_sol is not None else config.BUY_AMOUNT_SOL,
+            "denominatedInSol": "true",
+            "slippage": config.SLIPPAGE_PERCENT,
+            "priorityFee": config.PRIORITY_FEE,
+            "pool": "pump",
+        }
 
+        try:
             async with session.post(url, data=data) as resp:
                 body = await resp.read()
 

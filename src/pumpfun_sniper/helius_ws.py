@@ -11,6 +11,7 @@ from picows import WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
 from pumpfun_sniper import config
 from pumpfun_sniper.decorators import timed
 from pumpfun_sniper.models import WebSocketMessage
+from pumpfun_sniper.optimized import bytes_to_pubkey_optimized
 from pumpfun_sniper.pump_portal import PumpPortalClient
 
 # Log prefix for Pump.fun CreateEvent data
@@ -96,7 +97,7 @@ class HeliusWSListener(WSListener):
             msg = self._decoder.decode(data)
         except msgspec.DecodeError:
             # Subscription confirmation or other non-transaction messages
-            logger.debug(f"Non-parseable message: {bytes(data)[:200]}")
+            logger.debug(f"Non-parseable message: {bytes(data)[:200]!r}")
             return
 
         # Subscription confirmation
@@ -134,8 +135,12 @@ class HeliusWSListener(WSListener):
             logger.debug(f"Symbol {symbol} not in monitored set, skipping")
             return
 
-        logger.success(f"Symbol {symbol} MATCHED! Initiating buy for {mint}")
-        self._loop.create_task(self._execute_buy(mint, symbol))
+        # Get buy amount for this symbol
+        buy_amount = config.get_buy_amount_for_symbol(symbol)
+        logger.success(
+            f"Symbol {symbol} MATCHED! Initiating buy for {mint} with {buy_amount} SOL"
+        )
+        self._loop.create_task(self._execute_buy(mint, symbol, buy_amount))
 
     def _decode_create_event(
         self, logs: list[str]
@@ -186,17 +191,17 @@ class HeliusWSListener(WSListener):
                 # Then read pubkeys
                 if offset + 32 > len(data):
                     raise ValueError(f"Not enough data for mint at {offset}")
-                mint = self._bytes_to_pubkey(data[offset : offset + 32])
+                mint = bytes_to_pubkey_optimized(data[offset : offset + 32])
                 offset += 32
 
                 if offset + 32 > len(data):
                     raise ValueError(f"Not enough data for bonding_curve at {offset}")
-                bonding_curve = self._bytes_to_pubkey(data[offset : offset + 32])
+                bonding_curve = bytes_to_pubkey_optimized(data[offset : offset + 32])
                 offset += 32
 
                 if offset + 32 > len(data):
                     raise ValueError(f"Not enough data for user at {offset}")
-                user = self._bytes_to_pubkey(data[offset : offset + 32])
+                user = bytes_to_pubkey_optimized(data[offset : offset + 32])
                 offset += 32
 
                 return (mint, name, symbol, uri, bonding_curve, user)
@@ -209,24 +214,6 @@ class HeliusWSListener(WSListener):
                 continue
 
         return None
-
-    @staticmethod
-    def _bytes_to_pubkey(data: bytes) -> str:
-        """Convert 32 bytes to base58 pubkey string."""
-        # Simple base58 encoding for Solana pubkeys
-        alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-        num = int.from_bytes(data, "big")
-        result = []
-        while num:
-            num, rem = divmod(num, 58)
-            result.append(alphabet[rem])
-        # Handle leading zeros
-        for byte in data:
-            if byte == 0:
-                result.append("1")
-            else:
-                break
-        return "".join(reversed(result))
 
     @staticmethod
     def _read_string(data: bytes, offset: int) -> tuple[str, int]:
@@ -258,14 +245,15 @@ class HeliusWSListener(WSListener):
         string = data[offset : offset + length].decode("utf-8", errors="replace")
         return string, offset + length
 
-    async def _execute_buy(self, mint: str, symbol: str) -> None:
+    async def _execute_buy(self, mint: str, symbol: str, amount_sol: float) -> None:
         """Execute buy order for token.
 
         Args:
             mint: Token mint address.
             symbol: Token symbol.
+            amount_sol: Amount in SOL to buy.
         """
-        await self._pump_client.buy_token(mint, symbol)
+        await self._pump_client.buy_token(mint, symbol, amount_sol)
 
     async def _ping_loop(self) -> None:
         """Send periodic pings to keep connection alive."""
@@ -297,11 +285,12 @@ async def run_websocket(pump_client: PumpPortalClient) -> None:
     """
     loop = asyncio.get_running_loop()
 
+    monitored = config.get_monitored_symbols()
     logger.info("Connecting to Helius WebSocket...")
-    logger.info(f"Monitoring symbols: {sorted(config.MONITORED_SYMBOLS)}")
+    logger.info(f"Monitoring symbols: {sorted(monitored)}")
 
     while True:
-        listener = HeliusWSListener(pump_client, config.MONITORED_SYMBOLS, loop)
+        listener = HeliusWSListener(pump_client, monitored, loop)
         try:
             transport, _ = await ws_connect(lambda: listener, config.HELIUS_WS_URL)
 

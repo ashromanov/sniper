@@ -61,18 +61,6 @@ class WebSocketMessage(msgspec.Struct, frozen=True):
     result: int | None = None  # Subscription confirmation
 
 
-class TradeRequest(msgspec.Struct, frozen=True):
-    """Request body for PumpPortal trade API."""
-
-    action: str
-    mint: str
-    amount: float
-    denominatedInSol: str
-    slippage: int
-    priorityFee: float
-    pool: str = "pump"
-
-
 class TradeResponse(msgspec.Struct, frozen=True, kw_only=True):
     """Response from PumpPortal trade API."""
 

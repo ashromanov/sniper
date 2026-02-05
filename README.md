@@ -28,8 +28,15 @@ cp .env.example .env
 
 ## Usage
 
-```bash
-uv run sniper
+### Examples
 
-uv run python -m pumpfun_sniper
+```bash
+# Snipe PEPE with 0.02 SOL
+uv run sniper -s PEPE:0.02
+
+# Snipe multiple tokens with different amounts
+uv run sniper -s PEPE:0.01 -s DOGE:0.05 -s SHIB:0.1 -s WIF:0.02
+
+# Use default amount from .env for all
+uv run sniper -s PEPE -s DOGE -s SHIB
 ```
